@@ -4,15 +4,14 @@ import model.Casino;
 import model.Match;
 import model.Player;
 import type.OperationType;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public class GameService {
     private GameService() {}
-
     private static final String DRAW = "DRAW";
+
     public static void handlePlayerAction(List<String> playerData, Map<String, Player> playerMap, Map<String, Match> matchMap, Casino casino) {
         for (String str : playerData) {
             String[] parts = str.split(",");
@@ -21,7 +20,7 @@ public class GameService {
 
             Player player = playerMap.getOrDefault(playerId, new Player());
             player.setUuid(playerId);
-            
+
             handleBasedOnAction(matchMap, casino, str, operationType, parts, player);
             playerMap.put(playerId, player);
         }
@@ -34,7 +33,7 @@ public class GameService {
                 player.increaseBalance(depositAmount);
                 break;
             case WITHDRAW:
-                handleWithdraw(parts, player);
+                handleWithdraw(parts, player,casino);
                 break;
             case BET:
                 String matchId = parts[2];
@@ -45,7 +44,7 @@ public class GameService {
         }
     }
 
-    private static void handleWithdraw(String[] parts, Player player) {
+    private static void handleWithdraw(String[] parts, Player player, Casino casino) {
         for (int i = 0; i < parts.length; i++) {
             if (parts[i].isEmpty()) {
                 parts[i] = "NULL";
@@ -53,7 +52,9 @@ public class GameService {
         }
         int withdrawAmount = Integer.parseInt(parts[3]);
         if (withdrawAmount > player.getBalance()) {
-            player.addIllegalAction(String.join(",", parts));
+            player.handleIllegalAction(String.join(",", parts));
+            casino.increaseCasinoBalance(player.getTotalProfit());
+            player.setIllegitimate(true);
         } else {
             player.decreaseBalance(withdrawAmount);
         }
@@ -65,9 +66,12 @@ public class GameService {
             double rate = matchResult.getRate(betSide);
 
             if (betAmount > player.getBalance()) {
-                player.handleIllegalBet(str);
+                player.handleIllegalAction(str);
             } else if (!matchResult.getResult().equals(DRAW)) {
                 updateBalance(casino, betSide, matchResult, player, betAmount, rate);
+            }
+            else {
+                player.incrementTotalBetsCount();
             }
         }
     }
@@ -75,16 +79,19 @@ public class GameService {
     private static void updateBalance(Casino casino, String betSide, Match matchResult, Player player, int betAmount, double rate) {
         if (betSide.equals(matchResult.getResult())) {
             player.increaseBalance((int) (betAmount * rate));
+            player.increaseWonMoney((int) (betAmount * rate));
             casino.decreaseCasinoBalance((int) (betAmount * rate));
             player.incrementWonBetsCount();
+            player.incrementTotalBetsCount();
         } else {
             player.decreaseBalance(betAmount);
+            player.increaseLostMoney(betAmount);
             casino.increaseCasinoBalance(betAmount);
-            player.incrementLostBetsCount();
+            player.incrementTotalBetsCount();
         }
     }
 
-    public static void mapMatchFileData(List<String> matchData, Map<String, Match> matchMap) {
+            public static void mapMatchFileData(List<String> matchData, Map<String, Match> matchMap) {
         matchData.stream()
                 .map(data -> data.split(","))
                 .forEach(matchParts -> {
@@ -104,11 +111,10 @@ public class GameService {
         for (Player player : playerMap.values()) {
             outputContent.add(player.getPlayerSummary());
             allIllegalActions.addAll(player.getIllegalActions());
-
         }
-        outputContent.add("Illegitimate players:");
         outputContent.addAll(allIllegalActions);
-        outputContent.add("Casino Host Balance: " + casino.getCasinoBalance());
+        outputContent.add(" ");
+        outputContent.add("Casino balance:" + casino.getCasinoBalance());
         return outputContent;
     }
 }
